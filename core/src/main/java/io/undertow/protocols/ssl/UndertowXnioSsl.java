@@ -42,14 +42,20 @@ import org.xnio.ssl.JsseXnioSsl;
 import org.xnio.ssl.SslConnection;
 import org.xnio.ssl.XnioSsl;
 
+import javax.net.ssl.SNIHostName;
+import javax.net.ssl.SNIServerName;
 import javax.net.ssl.SSLContext;
 import javax.net.ssl.SSLEngine;
+import javax.net.ssl.SSLParameters;
+
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.net.SocketAddress;
+import java.net.URI;
 import java.security.KeyManagementException;
 import java.security.NoSuchAlgorithmException;
 import java.security.NoSuchProviderException;
+import java.util.Collections;
 import java.util.concurrent.TimeUnit;
 
 import static org.xnio.IoUtils.safeClose;
@@ -185,6 +191,19 @@ public class UndertowXnioSsl extends XnioSsl {
 
     public SslConnection wrapExistingConnection(StreamConnection connection, OptionMap optionMap) {
         return new UndertowSslConnection(connection, JsseSslUtils.createSSLEngine(sslContext, optionMap, (InetSocketAddress) connection.getPeerAddress()), bufferPool);
+    }
+
+    public SslConnection wrapExistingConnection(StreamConnection connection, OptionMap optionMap, URI destinationUri) {
+        SSLEngine sslEngine = JsseSslUtils.createSSLEngine(sslContext, optionMap,
+            (InetSocketAddress) connection.getPeerAddress());
+        // inject SNI host name of destination
+        SSLParameters sslParams = sslEngine.getSSLParameters();
+        if (sslParams.getServerNames() == null || sslParams.getServerNames().isEmpty()) {
+            sslParams.setServerNames(Collections.singletonList(
+                (SNIServerName) new SNIHostName(destinationUri.getHost())));
+        }
+        sslEngine.setSSLParameters(sslParams);
+        return new UndertowSslConnection(connection, sslEngine, bufferPool);
     }
 
     private IoFuture<SslConnection> setupSslConnection(FutureResult<SslConnection> futureResult, IoFuture<StreamConnection> connection) {
